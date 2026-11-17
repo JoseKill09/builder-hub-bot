@@ -19,6 +19,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY bot ./bot
 COPY tests ./tests
 COPY examples ./examples
+COPY prompts ./prompts
 
 # Usuario sin privilegios
 RUN useradd --uid 10001 --create-home --shell /usr/sbin/nologin builder-hub

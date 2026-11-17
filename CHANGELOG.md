@@ -1,5 +1,10 @@
 # Cambios
 
+## 1.1 — 17-11-2026
+- Botón «Copiar prompt para la IA» en 📦 Formato: envía un prompt corto en un solo mensaje (es/en según el usuario) que manda a la IA a leer el completo en GitHub.
+- Módulo de mensajes enriquecidos en los prompts (pregunta al usuario) y guía `docs/RICH-MESSAGES.md` con todas las etiquetas, límites, botones, errores típicos y patrón con respaldo.
+- Manejador de errores y registro de cada mensaje recibido (sin contenido) para diagnosticar.
+
 ## 1.0 — 2026-11-17
 - Primera versión de **Builder Hub** (*Ship your Telegram Serverless bot from any AI chat*).
 - Publicación en 3 pasos desde el chat: token de acceso de Serverless (el mensaje se borra al momento) → ZIP del proyecto → revisión de cambios → publicar.

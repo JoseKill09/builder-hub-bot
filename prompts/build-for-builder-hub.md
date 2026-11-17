@@ -21,6 +21,7 @@ Before writing code, ask me (in one message, with sensible defaults I can accept
 - What the bot must do (main features, commands, buttons).
 - The language(s) of the bot's messages.
 - Whether I want a **Mini App** (a web page inside Telegram) or chat only.
+- Whether I want **Rich Messages** in the chat (structured messages with headings, tables, collapsible blocks and buttons inside the text) or simple classic messages. Recommend rich messages with a classic fallback.
 - Anything that needs a decision only I can make (for example, who the admin is: ask for my numeric Telegram ID, never for tokens).
 
 Do not ask technical questions I would not understand: choose sensible defaults and tell me what you chose.
@@ -43,6 +44,14 @@ Do not ask technical questions I would not understand: choose sensible defaults 
 - **Mini App:** plain HTML/CSS/JS that needs no build (or give me the already built output). Put it in `webapp/`, include `https://telegram.org/js/telegram-web-app.js`, call endpoints with `Telegram.WebApp.Serverless.call('name', input, (err, result) => …)`, and add a `tgcloud.jsonc` at the root: `{ "static": { "source": "webapp" } }`. Never put files under `webapp/api/`.
 - No `node_modules/`, no `.tgcloud/`, no `package.json` needed.
 
+## 3b. Rich Messages module (only if I said yes)
+
+Read https://raw.githubusercontent.com/JoseKill09/builder-hub-bot/main/docs/RICH-MESSAGES.md before writing any message code (official reference: https://core.telegram.org/bots/api/rich-messages.md). Essentials:
+- Send with `api.sendRichMessage({ chat_id, rich_message: { html } })` and edit with `api.editMessageText({ chat_id, message_id, rich_message: { html } })`. Content in `html` or `markdown`, max 32,768 characters.
+- They are **not** classic HTML: different tags (`<h1>`–`<h6>`, `<table>`, `<details>`, `<blockquote expandable>`, `<tg-time>`, `<tg-button-row>`…), `<br>` only inside `<blockquote>`/`<details>`, media only as separate blocks, only a few named entities.
+- Buttons can live inside the text: `<tg-button-row><tg-button type="callback_data" data="x" style="primary">Label</tg-button></tg-button-row>`.
+- **Escape every dynamic value** and always implement the three-level fallback (rich with embedded buttons → rich + `reply_markup` → classic `sendMessage` with `parse_mode: "HTML"`). The guide has ready-to-copy code.
+
 ## 4. Deliver
 
 1. Show me the **file tree** and a short explanation of what each part does.
@@ -60,6 +69,7 @@ Do not ask technical questions I would not understand: choose sensible defaults 
 - [ ] Every handler and endpoint has `export default`.
 - [ ] Every database call is awaited; no foreign keys.
 - [ ] The code is syntactically valid JavaScript (re-read it).
+- [ ] If rich messages: every dynamic value is escaped and the fallback exists.
 - [ ] If there is a Mini App: `tgcloud.jsonc` exists and `webapp/index.html` loads `telegram-web-app.js`.
 
 ## 6. When Builder Hub reports errors

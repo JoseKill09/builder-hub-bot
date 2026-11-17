@@ -11,6 +11,7 @@ import logging
 import re
 import shutil
 import time
+from pathlib import Path
 
 from telegram import Update
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
@@ -97,7 +98,8 @@ def home(lang: str, uid: int) -> Screen:
 def format_screen(lang: str) -> Screen:
     return (Screen().h("📦", t(lang, "format_title")).p(t(lang, "format")).pre(t(lang, "format_tree"))
             .ul(t(lang, "format_rules")).p(t(lang, "format_ai"))
-            .row(B("📄 Prompt + FORMAT.md", url=config.REPO_URL), B("📚 Handbook", url=config.HANDBOOK_URL))
+            .row(B(t(lang, "btn_prompt"), "prompt"))
+            .row(B("📄 FORMAT.md", url=config.REPO_URL + "/blob/main/docs/FORMAT.md"), B("📚 Handbook", url=config.HANDBOOK_URL))
             .row(B(t(lang, "btn_back"), "m")))
 
 
@@ -215,6 +217,8 @@ async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         if data == "m":
             await edit(bot, uid, msg, home(lang, uid))
+        elif data == "prompt":
+            await send_prompt(bot, uid, lang)
         elif data == "fmt":
             await edit(bot, uid, msg, format_screen(lang))
         elif data == "help":
@@ -320,12 +324,26 @@ async def publish(bot, uid: int, lang: str, s: dict, allow_destructive: bool) ->
 
 
 # ───────────── mensajes ─────────────
+async def send_prompt(bot, uid: int, lang: str) -> None:
+    """Prompt corto para la IA (un solo mensaje, en el idioma del usuario); el completo lo lee la IA en GitHub."""
+    text = (Path(__file__).resolve().parent.parent / "prompts" / f"chat-short.{'es' if lang == 'es' else 'en'}.md").read_text(encoding="utf-8")
+    intro = ("Toca el bloque para copiarlo y pégalo en el chat de tu IA. Después cuéntale qué bot quieres."
+             if lang == "es" else "Tap the block to copy it and paste it into your AI chat. Then tell it which bot you want.")
+    await bot.send_message(uid, intro)
+    await bot.send_message(uid, f"<pre>{esc(text.strip())}</pre>", parse_mode="HTML")
+
+
+async def on_error(update, context: ContextTypes.DEFAULT_TYPE):
+    log.error("Error: %s", C.mask(str(context.error)), exc_info=context.error)
+
+
 async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user, lang = await gate(update)
     if not user:
         return
     uid, m, bot = user["id"], update.effective_message, context.bot
     text = (m.text or "").strip()
+    log.info("mensaje de %s (paso: %s, texto: %s, documento: %s)", uid, (SESSIONS.get(uid) or {}).get("step", "-"), bool(text), bool(m.document))
 
     # Panel: respuestas numéricas
     if uid in ADMIN_WAIT and is_admin(uid):
@@ -428,6 +446,7 @@ def main() -> None:
     app = Application.builder().token(config.BOT_TOKEN).concurrent_updates(True).build()
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler(["cancel", "cancelar"], cmd_cancel))
+    app.add_error_handler(on_error)
     app.add_handler(CallbackQueryHandler(on_button))
     app.add_handler(MessageHandler(filters.ChatType.PRIVATE & ~filters.COMMAND, on_message))
     log.info("Builder Hub %s arrancado", __version__)
