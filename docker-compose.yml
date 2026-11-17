@@ -1,0 +1,25 @@
+services:
+  builder-hub:
+    build: .
+    image: builder-hub:latest
+    container_name: builder-hub
+    # Usuario y grupo dueños de ./data en el servidor (en el NAS: 1000:10).
+    user: "${PUID:-1000}:${PGID:-10}"
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - TZ=Europe/Madrid
+      - DATA_DIR=/app/data
+      - WORK_DIR=/tmp/builder-hub
+    volumes:
+      - ./data:/app/data
+    # Los proyectos de los usuarios solo pasan por /tmp (en memoria) y se borran al terminar.
+    tmpfs:
+      - /tmp:size=512m,mode=1777
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    mem_limit: 768m
+    pids_limit: 256

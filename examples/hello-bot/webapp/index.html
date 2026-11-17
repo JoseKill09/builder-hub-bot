@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Hello bot</title>
+  <style>body{font:16px system-ui,sans-serif;margin:24px;background:var(--tg-theme-bg-color);color:var(--tg-theme-text-color)}</style>
+</head>
+<body>
+  <h1>Hello bot</h1>
+  <p id="out">Loading…</p>
+  <script>
+    const tg = window.Telegram.WebApp;
+    tg.ready();
+    tg.Serverless.call('getStats', {}, (err, r) => {
+      document.getElementById('out').textContent = err ? 'Error: ' + err.message : `${r.name}, you sent ${r.seen} message(s).`;
+    });
+  </script>
+</body>
+</html>

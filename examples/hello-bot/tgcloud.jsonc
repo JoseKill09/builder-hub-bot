@@ -1,0 +1,4 @@
+{
+  // The Mini App is the "webapp" folder, already built (plain HTML here).
+  "static": { "source": "webapp", "headers": [{ "path": "/", "set": { "Cache-Control": "no-store" } }] }
+}
