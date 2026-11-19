@@ -50,6 +50,10 @@ MIGRATIONS = [
     "ALTER TABLE deploys ADD COLUMN kind TEXT DEFAULT 'publish'",
     "ALTER TABLE deploys ADD COLUMN version_id INTEGER",
     "ALTER TABLE users ADD COLUMN blocked_at INTEGER",
+    "ALTER TABLE projects ADD COLUMN slug TEXT DEFAULT ''",
+    "ALTER TABLE projects ADD COLUMN token_enc TEXT",
+    "ALTER TABLE projects ADD COLUMN access TEXT DEFAULT 'none'",  # none | saved | lost
+    "ALTER TABLE projects ADD COLUMN access_at INTEGER",
 ]
 
 
@@ -215,3 +219,49 @@ def version_touch(vid: int, destructive: bool = False) -> None:
 
 def version_store(vid: int, store: str, file_id: str, chat: int | None, msg: int | None) -> None:
     run("UPDATE versions SET store=?, file_id=?, store_chat=?, store_msg=? WHERE id=?", (store, file_id, chat, msg, vid))
+
+
+def slug(name: str) -> str:
+    import re
+    return re.sub(r"[^0-9a-z]+", "", (name or "").lower())
+
+
+def project_set_slug(pid: int, name: str) -> None:
+    if slug(name):
+        run("UPDATE projects SET slug=? WHERE id=?", (slug(name), pid))
+
+
+def projects_matching(uid: int, name: str):
+    s = slug(name)
+    return q("SELECT * FROM projects WHERE user_id=? AND slug=? AND slug<>'' ORDER BY updated DESC", (uid, s)) if s else []
+
+
+def project_save_token(pid: int, enc: str) -> None:
+    run("UPDATE projects SET token_enc=?, access='saved', access_at=? WHERE id=?", (enc, int(time.time()), pid))
+
+
+def project_forget_token(pid: int) -> None:
+    run("UPDATE projects SET token_enc=NULL, access='none', access_at=? WHERE id=?", (int(time.time()), pid))
+
+
+def project_access_lost(pid: int) -> None:
+    run("UPDATE projects SET token_enc=NULL, access='lost', access_at=? WHERE id=?", (int(time.time()), pid))
+
+
+def project_history(uid: int, app: str, limit: int = 20):
+    return q("""SELECT d.*, v.label FROM deploys d LEFT JOIN versions v ON v.id=d.version_id
+                WHERE d.user_id=? AND d.app=? ORDER BY d.id DESC LIMIT ?""", (uid, app, limit))
+
+
+def project_delete(uid: int, pid: int) -> dict:
+    """Borra el proyecto, sus versiones, su historial y su acceso. Devuelve las copias del canal a borrar."""
+    p = project_get(pid)
+    if not p or p["user_id"] != uid:
+        return {}
+    vs = versions_of(pid)
+    copies = [(v["store_chat"], v["store_msg"]) for v in vs if v["store"] == "channel" and v["store_chat"] and v["store_msg"]]
+    n_dep = q("SELECT count(*) n FROM deploys WHERE user_id=? AND app=?", (uid, p["app"]), one=True)["n"]
+    run("DELETE FROM versions WHERE project_id=?", (pid,))
+    run("DELETE FROM deploys WHERE user_id=? AND app=?", (uid, p["app"]))
+    run("DELETE FROM projects WHERE id=?", (pid,))
+    return {"name": p["name"] or p["app"], "app": p["app"], "versions": len(vs), "deploys": n_dep, "copies": copies}

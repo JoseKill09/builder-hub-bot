@@ -22,6 +22,7 @@ To **update** a bot later, just send its new ZIP to Builder Hub at any time: it 
 
 ## Features
 
+- **Knows your projects.** Every bot you publish is remembered (by its public app ID, per user). When you send a ZIP, Builder Hub recognises which project it belongs to (by its name), or asks you if you have several; with saved access it goes straight to the review.
 - **Updates with "what's new".** Send a ZIP whenever you want; Builder Hub compares it with the published version (`v1.2 → v1.3`), shows the new changelog entries and the plan, and you confirm or cancel.
 - **Version history per bot** (🗂 My projects): every published version with its date, changelog and SHA-256. Go **⬅️ back** to the previous one, **➡️ forward** again, restore any version, or **📥 download** its ZIP.
 - **Safe restores.** Only the chosen version is downloaded (to RAM), its SHA-256 must match, it is validated again and you see the plan before anything changes.
@@ -32,11 +33,14 @@ To **update** a bot later, just send its new ZIP to Builder Hub at any time: it 
 - **Queue:** a few publications run at the same time (panel setting, 1–4); everyone else waits in order and sees their position.
 - **Contact:** users write to the owner (idea, bug, question…) and get the answer in the chat. The owner has an inbox with filters, quick replies, notes, stars, "solve and notify", retracting the last reply (48 h) and blocking.
 - **Copyable AI prompt** in one message, in the user's language (📦 Format → 📋).
+- **Per-project history** of every publication, update, restore and failure.
+- **Bot profile out of the box:** name, descriptions and commands (es/en) are set at start-up; the profile photo from the panel. Brand assets in [`brand/`](brand/).
 
 ## Security model
 
 - **Your code never runs on the Builder Hub server.** It is only validated and uploaded; it runs on Telegram's infrastructure, inside your bot.
-- **Tokens are never stored or logged.** The token lives in memory for the duration of one publication, is passed to the CLI only through an environment variable, and is masked in every log line. The message where you sent it is deleted immediately.
+- **Tokens are never logged, and only stored if you ask.** The message where you send the token is deleted immediately; the token is passed to the CLI only through an environment variable and masked in every log line. By default it lives in memory for one publication. If you turn on **🔑 Remember access**, it is stored **encrypted** (Fernet; key in `SECRET_KEY` or a `data/vault.key` file with mode 600) so that next time you only send the ZIP. Forget it from the bot at any time, or regenerate it in BotFather: the project then shows "access lost" — you still see it, but nothing is changed on Telegram until you send a new token.
+- **Delete a project** and Builder Hub erases everything about it: versions, channel copies, history and saved access (your bot keeps running on Telegram; your ZIPs in the chat are yours to delete).
 - **No surprises with your data.** Before publishing you see every change. Safe database changes (new tables/columns) are applied with `migrate --safe`; changes that delete data are listed separately and are only applied after an explicit second confirmation.
 - **Hardened container:** non-root user, read-only filesystem, projects unpacked in RAM (`tmpfs`) and deleted after each job, no Linux capabilities, memory and process limits.
 - **ZIP hygiene:** absolute paths, `..`, symlinks, encrypted entries, oversized files and ZIP bombs are rejected; `node_modules/`, `.tgcloud/`, `.git/` and `.env*` are ignored.
@@ -72,6 +76,7 @@ docker compose up -d --build
 | `RICH_MESSAGES` | `0` to force classic HTML messages |
 | `MAX_PARALLEL` | Default for "publications at once" (the panel setting wins; default 2) |
 | `JOB_TTL` | Seconds before an unfinished publication is cancelled and forgotten (default 900) |
+| `SECRET_KEY` | Optional key to encrypt remembered tokens (default: generated in `data/vault.key`) |
 
 Runtime settings (sign-ups and contact open/closed, max ZIP size, daily limit per user, publications at once, copies channel, blocked users, support inbox) are changed from the **🛡 Panel** inside the bot.
 

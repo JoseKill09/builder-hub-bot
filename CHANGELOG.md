@@ -1,5 +1,18 @@
 # Cambios
 
+## 2.3 — 2026-11-19
+- Primera versión entregada por el Actualizador (la 2.1 ya estaba instalada). Sin cambios de funcionamiento: sirve para comprobar el camino de entrega y que «Permitir proyecto» funciona.
+- La versión que muestra el bot (pie del menú) pasa a 2.3.
+
+## 2.1 — 2026-11-19
+- **Tus proyectos, reconocidos:** cada bot que publicas queda apuntado (por su ID público de app y tu usuario). Al mandar un ZIP, el bot reconoce de qué proyecto es por su nombre; si tienes varios y no está claro, te pregunta cuál (o «Otro bot»). En cada proyecto, «📦 Actualizar».
+- **🔑 Recordar acceso** (opcional, activado por defecto en la revisión): el token se guarda **cifrado** y las siguientes actualizaciones y vueltas atrás no lo piden. «Olvidar acceso» lo borra.
+- **Acceso perdido:** si el token se regenera o revoca, el proyecto se sigue viendo (versiones, historial, descargas) pero para tocar el bot se pide el token nuevo.
+- **🧾 Historial por proyecto** (publicaciones, actualizaciones, restauraciones y fallos).
+- **🗑 Eliminar del bot:** borra versiones, copias del canal, historial y acceso guardado, con confirmación. El bot del usuario sigue funcionando.
+- **Marca:** logotipo, foto de perfil, banners (es/en), nombre, descripciones y comandos; textos y comandos se ponen solos al arrancar y la foto desde 🛡 Panel → 🎨 Perfil del bot.
+- Comandos nuevos: /projects, /prompt, /contact, /help.
+
 ## 2.0 — 2026-11-19
 - **Actualizar con novedades:** manda el ZIP nuevo cuando quieras (sin pulsar nada): el bot enseña las novedades de su `CHANGELOG.md` desde la versión publicada (`v1.2 → v1.3`), pide el token y muestra la revisión con ✅ Actualizar / ✖️ Cancelar.
 - **🗂 Mis proyectos:** historial de versiones de cada bot con fecha, novedades y SHA-256; ⬅️ volver a la anterior, ➡️ ir a la siguiente, restaurar cualquiera y 📥 descargar su ZIP.

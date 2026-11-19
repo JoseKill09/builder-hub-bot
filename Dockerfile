@@ -20,6 +20,7 @@ COPY bot ./bot
 COPY tests ./tests
 COPY examples ./examples
 COPY prompts ./prompts
+COPY brand ./brand
 
 # Usuario sin privilegios
 RUN useradd --uid 10001 --create-home --shell /usr/sbin/nologin builder-hub

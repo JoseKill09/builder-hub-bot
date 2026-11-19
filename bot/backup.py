@@ -77,3 +77,15 @@ async def check_channel(bot, chat_id: int) -> str | None:
     if chat.type == "channel" and not getattr(member, "can_post_messages", False):
         return "no_post"
     return None
+
+
+async def delete_copies(bot, copies: list[tuple[int, int]]) -> int:
+    """Borra del canal las copias de un proyecto eliminado. Devuelve cuántas se borraron."""
+    n = 0
+    for chat, msg in copies:
+        try:
+            await bot.delete_message(chat, msg)
+            n += 1
+        except Exception as e:  # noqa: BLE001
+            log.info("no pude borrar la copia %s/%s: %s", chat, msg, e)
+    return n

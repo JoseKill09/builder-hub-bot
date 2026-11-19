@@ -177,6 +177,10 @@ class Job:
             return "failed"
         return "kept" if "kept" in r.out else "set" if "set" in r.out else "failed"
 
+    def secret(self) -> str:
+        """Solo para guardarlo cifrado cuando el usuario elige «Recordar acceso»."""
+        return self._token
+
     # ── 4) limpiar: se borra todo y se olvida el token
     def cleanup(self) -> None:
         self._token = ""

@@ -21,7 +21,7 @@ from pathlib import Path
 from telegram import Update
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
 
-from . import __version__, backup, config, contact, db
+from . import __version__, backup, brand, config, contact, db, vault
 from . import versions as V
 from .deploy import cli as C
 from .deploy.job import DeployError, Job
@@ -97,8 +97,9 @@ def end_session(uid: int, status: str | None = None) -> None:
         return
     if s.get("timer"):
         s["timer"].cancel()
-    if s.get("job"):
-        s["job"].cleanup()
+    for k in ("job", "pending_job"):
+        if s.get(k):
+            s[k].cleanup()
     _drop_zip(s)
     if status and s.get("did") and status != "keep":
         db.deploy_finish(s["did"], status)
@@ -118,7 +119,8 @@ async def _expire(app: Application, uid: int, lang: str) -> None:
 
 def new_session(app: Application, uid: int, lang: str, msg: int | None) -> dict:
     s = {"kind": "publish", "step": "token", "msg": msg, "lang": lang, "job": None, "zip": None, "restore": None,
-         "ctx": None, "did": None, "busy": False, "timer": asyncio.create_task(_expire(app, uid, lang))}
+         "ctx": None, "did": None, "busy": False, "expect": None, "remember": True, "saved": False, "pending_job": None,
+         "timer": asyncio.create_task(_expire(app, uid, lang))}
     SESSIONS[uid] = s
     return s
 
@@ -214,6 +216,8 @@ def project_screen(lang: str, uid: int, pid: int) -> Screen:
     floor, floor_seq = V.floor_of(_vdicts(vs), cur["seq"] if cur else None)
     s = (Screen().h("🤖", esc(p["name"] or p["app"]))
          .p(t(lang, "proj_info", app=esc(p["app"]), cur=esc(vlabel(cur["label"]) if cur else t(lang, "proj_none_cur")), n=len(vs))))
+    acc = p.get("access") or "none"
+    s.p(t(lang, "acc_saved") if acc == "saved" else t(lang, "acc_lost", date=fdate(p.get("access_at"))) if acc == "lost" else t(lang, "acc_none"))
     if floor:
         s.p(t(lang, "ar_floor", floor=esc(vlabel(floor))))
     lines = []
@@ -245,9 +249,27 @@ def project_screen(lang: str, uid: int, pid: int) -> Screen:
     others = list(reversed(vs[-6:]))
     for i in range(0, len(others), 3):
         s.row(*[B(("▶️ " if cur and v["id"] == cur["id"] else "") + vlabel(v["label"]), f"vv:{v['id']}") for v in others[i:i + 3]])
-    if cur:
-        s.row(B(t(lang, "btn_dl_cur"), f"pd:{cur['id']}"))
+    s.row(B(t(lang, "btn_upd_this"), f"pu:{pid}", style="primary"), B(t(lang, "btn_dl_cur"), f"pd:{cur['id']}") if cur else None)
+    s.row(B(t(lang, "btn_proj_hist"), f"ph:{pid}"), B(t(lang, "btn_forget"), f"pfa:{pid}") if acc == "saved" else None)
+    s.row(B(t(lang, "btn_delete"), f"pdel:{pid}", style="danger"))
     return s.row(B(t(lang, "btn_back"), "hist"))
+
+
+def project_history_screen(lang: str, uid: int, pid: int) -> Screen:
+    p = db.project_get(pid)
+    if not p or p["user_id"] != uid:
+        return Screen().h("⚠️", t(lang, "not_yours")).row(B(t(lang, "btn_back"), "hist"))
+    rows = db.project_history(uid, p["app"])
+    s = Screen().h("🧾", t(lang, "hist_title", name=esc(p["name"] or p["app"])))
+    if not rows:
+        s.p(t(lang, "hist_none"))
+    else:
+        def st(r):
+            if r["status"] == "published" and r.get("kind") == "restore":
+                return t(lang, "st_restored")
+            return t(lang, "st_" + r["status"]) if r["status"] else ""
+        s.ul([f"{fdate(r['created'])} · {st(r)}" + (f" · <b>{esc(vlabel(r['label']))}</b>" if r.get("label") else "") for r in rows])
+    return s.row(B(t(lang, "btn_back"), f"pv:{pid}"))
 
 
 def own_version(uid: int, vid: int):
@@ -307,6 +329,7 @@ def admin_screen(lang: str) -> Screen:
             .row(B(t(lang, "btn_zip"), "az"), B(t(lang, "btn_daily"), "ad"), B(t(lang, "btn_parallel"), "ap"))
             .row(B(t(lang, "btn_backup"), "ach"), B(t(lang, "btn_backup_off"), "achx") if ch else None)
             .row(B(t(lang, "btn_block"), "ab"), B(t(lang, "btn_unblock"), "au"))
+            .row(B(t(lang, "btn_brand"), "abrand"))
             .row(B(t(lang, "btn_back"), "m")))
 
 
@@ -315,14 +338,21 @@ def ask_token_screen(lang: str, s: dict) -> Screen:
     if s["kind"] == "restore" and z:
         return (Screen().h("🔑", t(lang, "ask_token_title")).p(t(lang, "rst_ready", label=esc(vlabel(z["meta"].version))))
                 .quote(t(lang, "ask_token_safe")).row(B(t(lang, "btn_cancel"), "cancel")))
+    exp = s.get("expect")
     if z:
         meta: V.Meta = z["meta"]
         ver = f" · {esc(vlabel(meta.version))}" if meta.version else ""
-        sc = Screen().h("📦", t(lang, "ask_token_title_zip")).p(t(lang, "zip_received", name=esc(meta.name or z["name"]), ver=ver))
+        sc = Screen().h("📦", t(lang, "ask_token_title_zip"))
+        if exp:
+            sc.p(t(lang, "for_project", name=esc(exp["name"]), app=esc(exp["app"])))
+        else:
+            sc.p(t(lang, "zip_received", name=esc(meta.name or z["name"]), ver=ver))
         bl = V.changelog_since(meta.changelog, None)
         if bl:
             sc.details(t(lang, "novelties", n=len(bl)), novelty_lines(bl))
         return sc.quote(t(lang, "ask_token_safe")).p(t(lang, "zip_kept")).row(B(t(lang, "btn_cancel"), "cancel"))
+    if exp:
+        return (Screen().h("📦", exp["name"]).p(t(lang, "upd_this", name=esc(exp["name"]))).row(B(t(lang, "btn_cancel"), "cancel")))
     return (Screen().h("🔑", t(lang, "ask_token_title")).p(t(lang, "ask_token"))
             .quote(t(lang, "ask_token_safe")).row(B(t(lang, "btn_cancel"), "cancel")))
 
@@ -427,6 +457,9 @@ def plan_screen(lang: str, s: dict) -> Screen:
         sc.row(B(label, "pub", style="success"))
         if sp.destructive:
             sc.row(B(t(lang, "btn_publish_all"), "puball", style="danger"))
+        if not s.get("saved"):
+            sc.p(t(lang, "remember_hint"))
+        sc.row(B(t(lang, "btn_remember_on") if s.get("remember") else t(lang, "btn_remember_off"), "rem"))
     return sc.row(B(t(lang, "btn_newzip"), "newzip"), B(t(lang, "btn_cancel"), "cancel"))
 
 
@@ -472,6 +505,23 @@ async def cmd_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ADMIN_WAIT.pop(user["id"], None)
     contact.WAIT.pop(user["id"], None)
     await send(context.bot, user["id"], Screen().h("✖️", "Builder Hub").p(t(lang, "cancelled")).row(B(t(lang, "btn_menu"), "m")))
+
+
+async def cmd_screen(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user, lang = await gate(update)
+    if not user:
+        return
+    uid = user["id"]
+    name = (update.effective_message.text or "").split()[0].lstrip("/").split("@")[0].lower()
+    if name in ("projects", "proyectos"):
+        await send(context.bot, uid, projects_screen(lang, uid))
+    elif name == "prompt":
+        await send_prompt(context.bot, uid, lang)
+    elif name in ("contact", "contacto"):
+        contact.WAIT.pop(uid, None)
+        await send(context.bot, uid, contact.start_screen(lang))
+    elif name in ("help", "ayuda"):
+        await send(context.bot, uid, help_screen(lang))
 
 
 async def send_prompt(bot, uid: int, lang: str) -> None:
@@ -521,6 +571,68 @@ async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await edit(bot, uid, msg, version_screen(lang, uid, int(arg)))
         elif cmd == "pd":
             toast = await download_version(bot, uid, lang, int(arg))
+        elif cmd == "ph":
+            await edit(bot, uid, msg, project_history_screen(lang, uid, int(arg)))
+        elif cmd in ("pu", "pfa", "pdel", "pdel2"):
+            p = db.project_get(int(arg))
+            if not p or p["user_id"] != uid:
+                toast = t(lang, "not_yours")
+            elif cmd == "pu":
+                if uid in SESSIONS:
+                    toast = t(lang, "busy")
+                elif over_limit(uid):
+                    toast = t(lang, "limit", n=db.setting("daily_limit"))
+                else:
+                    ss = new_session(context.application, uid, lang, msg)
+                    ss["expect"] = expect_of(p)
+                    ss["step"] = "zip_first"
+                    await edit(bot, uid, msg, ask_token_screen(lang, ss))
+            elif cmd == "pfa":
+                db.project_forget_token(p["id"])
+                toast = t(lang, "forgot", name=p["name"] or p["app"])
+                await edit(bot, uid, msg, project_screen(lang, uid, p["id"]))
+            elif cmd == "pdel":
+                n = len(db.versions_of(p["id"]))
+                await edit(bot, uid, msg, Screen().h("🗑", t(lang, "del_title", name=esc(p["name"] or p["app"]))).p(t(lang, "del_confirm", n=n))
+                           .row(B(t(lang, "btn_delete_yes"), f"pdel2:{p['id']}", style="danger")).row(B(t(lang, "btn_back"), f"pv:{p['id']}")))
+            else:
+                s0 = SESSIONS.get(uid)
+                if s0 and (s0.get("expect") or {}).get("pid") == p["id"]:
+                    if s0.get("busy"):
+                        toast = t(lang, "busy")
+                        return
+                    end_session(uid, "cancelled")
+                info = db.project_delete(uid, p["id"])
+                c = await backup.delete_copies(bot, info.get("copies", []))
+                await edit(bot, uid, msg, Screen().h("🗑", "Builder Hub")
+                           .p(t(lang, "deleted", name=esc(info["name"]), v=info["versions"], c=c, d=info["deploys"]))
+                           .row(B(t(lang, "btn_history"), "hist"), B(t(lang, "btn_menu"), "m")))
+        elif cmd == "zp":
+            ss = SESSIONS.get(uid)
+            if ss and ss.get("zip") and ss.get("step") == "pick" and not ss.get("busy"):
+                await q.answer()
+                q = None
+                ss["msg"] = msg
+                if arg == "new":
+                    ss["expect"], ss["step"] = None, "token"
+                    await edit(bot, uid, msg, ask_token_screen(lang, ss))
+                else:
+                    p = db.project_get(int(arg))
+                    if p and p["user_id"] == uid:
+                        await use_project(bot, uid, lang, ss, p)
+        elif data == "anyapp":
+            ss = SESSIONS.get(uid)
+            if ss and ss.get("pending_job") and not ss.get("busy"):
+                await q.answer()
+                q = None
+                job, ss["pending_job"], ss["expect"] = ss["pending_job"], None, None
+                ss["msg"] = msg
+                await connect_with(bot, uid, lang, ss, job)
+        elif data == "rem":
+            ss = SESSIONS.get(uid)
+            if ss and ss.get("ctx") and not ss.get("busy"):
+                ss["remember"] = not ss.get("remember")
+                await edit(bot, uid, msg, plan_screen(lang, ss))
         elif cmd == "pr":
             toast = await start_restore(context.application, uid, lang, msg, int(arg))
         elif data == "lang":
@@ -572,8 +684,15 @@ async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
             s = SESSIONS.get(uid)
             if s and s.get("job") and s["job"].plan and s.get("ctx"):
                 await edit(bot, uid, msg, plan_screen(lang, s))
-        elif data in ("adm", "ao", "aco", "az", "ad", "ap", "ab", "au", "ach", "achx") and is_admin(uid):
+        elif data in ("adm", "ao", "aco", "az", "ad", "ap", "ab", "au", "ach", "achx", "abrand") and is_admin(uid):
             contact.WAIT.pop(uid, None)
+            if data == "abrand":
+                await q.answer()
+                q = None
+                done, err = await brand.apply(bot, with_photo=True)
+                await send(bot, uid, Screen().h("🎨", t(lang, "admin_title"))
+                           .p(t(lang, "brand_done", done=", ".join(done)) if not err else t(lang, "brand_fail", err=esc(err))).row(B(t(lang, "btn_back"), "adm")))
+                return
             if data == "ao":
                 db.set_setting("open", not db.setting("open"))
             elif data == "aco":
@@ -650,6 +769,11 @@ async def start_restore(app: Application, uid: int, lang: str, msg: int | None, 
     if not await fetch_version(app.bot, uid, lang, s, vid):
         end_session(uid)
         return None
+    s["expect"] = expect_of(p)
+    tok = vault.unseal(p.get("token_enc")) if p.get("access") == "saved" else None
+    if tok:
+        await connect_with(app.bot, uid, lang, s, Job(uid, tok, config.WORK_DIR, CLI), saved=True)
+        return None
     await edit(app.bot, uid, s["msg"], ask_token_screen(lang, s))
     return None
 
@@ -659,6 +783,107 @@ async def restore_in_session(bot, uid: int, lang: str, s: dict, vid: int) -> Non
     s["msg"] = await edit(bot, uid, s.get("msg"), Screen().h("⏳", t(lang, "checking_zip")))
     if await fetch_version(bot, uid, lang, s, vid):
         await process_zip(bot, uid, lang, s)
+
+
+# ───────────── conectar y elegir proyecto ─────────────
+def expect_of(p: dict) -> dict:
+    return {"pid": p["id"], "app": p["app"], "name": p["name"] or p["app"]}
+
+
+async def connect_with(bot, uid: int, lang: str, s: dict, job: Job, saved: bool = False) -> None:
+    """Conecta el trabajo (token escrito o guardado) y sigue: revisión si ya hay ZIP, o pedir el ZIP."""
+    exp = s.get("expect")
+    if exp and job.app != exp["app"]:
+        if s["kind"] == "restore":
+            job.cleanup()
+            await edit(bot, uid, s["msg"], Screen().h("🔑", t(lang, "ask_token_title"))
+                       .p(t(lang, "rst_wrong_app", got=esc(job.app), want=esc(exp["app"]))).row(B(t(lang, "btn_cancel"), "cancel")))
+            return
+        if s.get("pending_job"):
+            s["pending_job"].cleanup()
+        s["pending_job"] = job
+        await edit(bot, uid, s["msg"], Screen().h("🔑", t(lang, "ask_token_title"))
+                   .p(t(lang, "wrong_app", got=esc(job.app), name=esc(exp["name"]), want=esc(exp["app"])))
+                   .row(B(t(lang, "btn_any_app", got=job.app), "anyapp")).row(B(t(lang, "btn_cancel"), "cancel")))
+        return
+    s["busy"] = True
+    try:
+        async with JOBQ.slot(queue_notice(bot, uid, s)):
+            msg_text = t(lang, "connecting", name=esc(exp["name"])) if saved and exp else t(lang, "checking_token")
+            s["msg"] = await edit(bot, uid, s["msg"], Screen().h("⏳", "Builder Hub").p(msg_text))
+            await job.connect()
+    except DeployError as e:
+        job.cleanup()
+        if saved and exp and e.code == "token_bad":
+            db.project_access_lost(exp["pid"])
+            s["step"] = "token"
+            await edit(bot, uid, s["msg"], Screen().h("⚠️", esc(exp["name"])).p(t(lang, "access_lost_now", name=esc(exp["name"])))
+                       .quote(t(lang, "ask_token_safe")).row(B(t(lang, "btn_cancel"), "cancel")))
+            return
+        key = "token_bad" if e.code == "token_bad" else "cloud_error"
+        await edit(bot, uid, s["msg"], Screen().h("⚠️", t(lang, "ask_token_title")).p(t(lang, key)).row(B(t(lang, "btn_cancel"), "cancel")))
+        return
+    finally:
+        s["busy"] = False
+    if SESSIONS.get(uid) is not s:          # se canceló mientras esperaba
+        job.cleanup()
+        return
+    s["job"], s["saved"] = job, saved
+    proj = db.project_by_app(uid, job.app)
+    if s.get("zip"):
+        await process_zip(bot, uid, lang, s)
+        return
+    s["step"] = "zip"
+    await edit(bot, uid, s["msg"], Screen().h("📦", t(lang, "connected_title"))
+               .p(t(lang, "connected", app=esc(job.app), modules=job.deployed_modules, rev=job.revision if job.revision is not None else "—"))
+               .p(t(lang, "ask_zip", mb=db.setting("max_zip_mb"))).row(B(t(lang, "btn_cancel"), "cancel")))
+
+
+async def use_project(bot, uid: int, lang: str, s: dict, p: dict) -> None:
+    """El ZIP (o la restauración) es para este proyecto: acceso guardado → directo; si no, pedir su token."""
+    s["expect"] = expect_of(p)
+    tok = vault.unseal(p.get("token_enc")) if p.get("access") == "saved" else None
+    if tok:
+        await connect_with(bot, uid, lang, s, Job(uid, tok, config.WORK_DIR, CLI), saved=True)
+        return
+    s["step"] = "token"
+    await edit(bot, uid, s["msg"], ask_token_screen(lang, s))
+
+
+def picker_screen(lang: str, s: dict, projs: list[dict]) -> Screen:
+    meta: V.Meta = s["zip"]["meta"]
+    ver = f" · {esc(vlabel(meta.version))}" if meta.version else ""
+    sc = Screen().h("🗂", t(lang, "pick_title")).p(t(lang, "pick", name=esc(meta.name or s["zip"]["name"]), ver=ver))
+    bl = V.changelog_since(meta.changelog, None)
+    if bl:
+        sc.details(t(lang, "novelties", n=len(bl)), novelty_lines(bl))
+    for p in projs[:8]:
+        sc.row(B(f"🤖 {p['name'] or p['app']} · {vlabel(p.get('cur_label'))}{' 🔑' if p.get('access') == 'saved' else ''}", f"zp:{p['id']}"))
+    return sc.row(B(t(lang, "btn_other_bot"), "zp:new")).row(B(t(lang, "btn_cancel"), "cancel"))
+
+
+async def route_zip(bot, uid: int, lang: str, s: dict) -> None:
+    """Reconoce el proyecto del ZIP (por su nombre) entre los del usuario."""
+    if s.get("expect"):
+        p = db.project_get(s["expect"]["pid"])
+        if p and p["user_id"] == uid:
+            await use_project(bot, uid, lang, s, p)
+            return
+    meta: V.Meta = s["zip"]["meta"]
+    matches = db.projects_matching(uid, meta.name)
+    if len(matches) == 1:
+        await use_project(bot, uid, lang, s, matches[0])
+        return
+    projs = db.projects_of(uid)
+    if matches:
+        ids = {m["id"] for m in matches}
+        projs = [p for p in projs if p["id"] in ids]
+    if projs:
+        s["step"] = "pick"
+        await edit(bot, uid, s["msg"], picker_screen(lang, s, projs))
+        return
+    s["step"] = "token"
+    await edit(bot, uid, s["msg"], ask_token_screen(lang, s))
 
 
 # ───────────── ZIP → revisión → publicar ─────────────
@@ -690,8 +915,7 @@ async def receive_zip(bot, uid: int, lang: str, m, s: dict | None, app: Applicat
     if s.get("job"):
         await process_zip(bot, uid, lang, s)
     else:
-        s["step"] = "token"
-        await edit(bot, uid, s["msg"], ask_token_screen(lang, s))
+        await route_zip(bot, uid, lang, s)       # usa s["expect"] si se pulsó «📦 Actualizar» en un proyecto
 
 
 async def process_zip(bot, uid: int, lang: str, s: dict) -> None:
@@ -778,7 +1002,12 @@ async def publish(bot, uid: int, lang: str, s: dict, allow_destructive: bool) ->
                    f"👤 <code>{uid}</code> · SHA-256 <code>{z['sha'][:16]}…</code>")
             stored = await backup.store(bot, vid, z["file_id"], cap)
     db.project_set_current(proj["id"], vid)
+    db.project_set_slug(proj["id"], z["meta"].name if s["kind"] != "restore" else (proj["name"] or ""))
     db.deploy_version(s["did"], vid)
+    if s.get("remember"):
+        db.project_save_token(proj["id"], vault.seal(job.secret()))
+    elif proj.get("access") == "saved":
+        db.project_forget_token(proj["id"])
     v = db.version_get(vid)
     label = vlabel(v["label"])
     name = esc(proj["name"] or job.app)
@@ -813,7 +1042,7 @@ async def publish(bot, uid: int, lang: str, s: dict, allow_destructive: bool) ->
     screen = Screen().h("🎉", title).ul(lines)
     if ctx["novel"]:
         screen.details(t(lang, "novelties", n=len(ctx["novel"])), novelty_lines(ctx["novel"]))
-    screen.quote(t(lang, "rotate")).p(f"{esc(hashtag(proj['name'], job.app))} #{'restore' if s['kind'] == 'restore' else 'update'}")
+    screen.quote(t(lang, "pub_access_saved") if s.get("remember") else t(lang, "rotate")).p(f"{esc(hashtag(proj['name'], job.app))} #{'restore' if s['kind'] == 'restore' else 'update'}")
     if out.static_url:
         screen.row(B("📱 Mini App", url=out.static_url))
     screen.row(B(t(lang, "btn_versions"), f"pv:{proj['id']}"), B(t(lang, "btn_menu"), "m"))
@@ -894,6 +1123,11 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if s.get("busy"):
         return
+    if s["step"] == "zip_first":
+        if not has_token:
+            await send(bot, uid, Screen().p(t(lang, "zip_needed")).row(B(t(lang, "btn_cancel"), "cancel")))
+            return
+        s["step"] = "token"           # pegó el token antes del ZIP: vale igual
     if s["step"] == "token":
         if BOT_TOKEN_RE.search(text) and not C.looks_like_token(text):
             await edit(bot, uid, s["msg"], Screen().h("⚠️", t(lang, "ask_token_title")).p(t(lang, "token_bot")).p(t(lang, "ask_token"))
@@ -906,40 +1140,10 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await edit(bot, uid, s["msg"], Screen().h("🔑", t(lang, "ask_token_title")).p(t(lang, "token_format_bad")).p(t(lang, "ask_token"))
                        .row(B(t(lang, "btn_cancel"), "cancel")))
             return
-        job = Job(uid, text, config.WORK_DIR, CLI)
-        if s["kind"] == "restore":
-            want = db.project_get(s["restore"]["pid"])["app"]
-            if job.app != want:
-                job.cleanup()
-                await edit(bot, uid, s["msg"], Screen().h("🔑", t(lang, "ask_token_title"))
-                           .p(t(lang, "rst_wrong_app", got=esc(job.app), want=esc(want))).row(B(t(lang, "btn_cancel"), "cancel")))
-                return
-        s["busy"] = True
-        try:
-            async with JOBQ.slot(queue_notice(bot, uid, s)):
-                s["msg"] = await edit(bot, uid, s["msg"], Screen().h("⏳", t(lang, "checking_token")))
-                await job.connect()
-        except DeployError as e:
-            job.cleanup()
-            key = "token_bad" if e.code == "token_bad" else "cloud_error"
-            await edit(bot, uid, s["msg"], Screen().h("⚠️", t(lang, "ask_token_title")).p(t(lang, key)).row(B(t(lang, "btn_cancel"), "cancel")))
-            return
-        finally:
-            s["busy"] = False
-        if SESSIONS.get(uid) is not s:          # se canceló mientras esperaba
-            job.cleanup()
-            return
-        s["job"] = job
-        if s.get("zip"):
-            await process_zip(bot, uid, lang, s)
-            return
-        s["step"] = "zip"
-        await edit(bot, uid, s["msg"], Screen().h("📦", t(lang, "connected_title"))
-                   .p(t(lang, "connected", app=esc(job.app), modules=job.deployed_modules, rev=job.revision if job.revision is not None else "—"))
-                   .p(t(lang, "ask_zip", mb=db.setting("max_zip_mb"))).row(B(t(lang, "btn_cancel"), "cancel")))
+        await connect_with(bot, uid, lang, s, Job(uid, text, config.WORK_DIR, CLI))
         return
 
-    if not has_token and s["step"] in ("zip", "plan"):
+    if not has_token and s["step"] in ("zip", "plan", "pick"):
         await send(bot, uid, Screen().h("📦", t(lang, "connected_title")).p(t(lang, "zip_needed")).row(B(t(lang, "btn_cancel"), "cancel")))
 
 
@@ -951,10 +1155,17 @@ def main() -> None:
     # Cualquier resto de una ejecución anterior (carpetas de trabajo, ZIP descargados) se borra al arrancar.
     for old in list(config.WORK_DIR.glob("job-*")) + list(config.WORK_DIR.glob("in-*.zip")):
         shutil.rmtree(old, ignore_errors=True) if old.is_dir() else old.unlink(missing_ok=True)
-    app = Application.builder().token(config.BOT_TOKEN).concurrent_updates(True).build()
+    async def post_init(application: Application) -> None:
+        try:
+            await brand.apply(application.bot, with_photo=False)     # textos y comandos (la foto, desde el panel)
+        except Exception as e:  # noqa: BLE001
+            log.info("perfil del bot: %s", e)
+
+    app = Application.builder().token(config.BOT_TOKEN).concurrent_updates(True).post_init(post_init).build()
     app.add_error_handler(on_error)
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler(["cancel", "cancelar"], cmd_cancel))
+    app.add_handler(CommandHandler(["projects", "proyectos", "prompt", "contact", "contacto", "help", "ayuda"], cmd_screen))
     app.add_handler(CallbackQueryHandler(on_button))
     app.add_handler(MessageHandler(filters.ChatType.PRIVATE & ~filters.COMMAND, on_message))
     log.info("Builder Hub %s arrancado", __version__)
