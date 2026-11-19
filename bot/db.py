@@ -23,7 +23,34 @@ CREATE TABLE IF NOT EXISTS deploys (
 );
 CREATE INDEX IF NOT EXISTS idx_deploys_user ON deploys(user_id, created);
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);
+CREATE TABLE IF NOT EXISTS projects (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, app TEXT, name TEXT,
+  current_vid INTEGER, created INTEGER, updated INTEGER, UNIQUE(user_id, app)
+);
+CREATE TABLE IF NOT EXISTS versions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, project_id INTEGER, seq INTEGER, label TEXT,
+  sha256 TEXT, size INTEGER, filename TEXT, file_id TEXT, store TEXT, store_chat INTEGER, store_msg INTEGER,
+  changelog TEXT, no_rollback_before TEXT, destructive INTEGER DEFAULT 0,
+  created INTEGER, published INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_versions_project ON versions(project_id, seq);
+CREATE TABLE IF NOT EXISTS feedback (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, kind TEXT, text TEXT, file_id TEXT,
+  reply_to INTEGER, status TEXT DEFAULT 'open', starred INTEGER DEFAULT 0, note TEXT,
+  notify TEXT DEFAULT '{}', created INTEGER, answered_at INTEGER, closed_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_feedback_user ON feedback(user_id, created);
+CREATE TABLE IF NOT EXISTS feedback_replies (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, feedback_id INTEGER, admin_id INTEGER, text TEXT, photo TEXT,
+  mids TEXT DEFAULT '[]', retracted INTEGER DEFAULT 0, created INTEGER
+);
+CREATE TABLE IF NOT EXISTS fb_quick (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, text TEXT, uses INTEGER DEFAULT 0);
 """
+MIGRATIONS = [
+    "ALTER TABLE deploys ADD COLUMN kind TEXT DEFAULT 'publish'",
+    "ALTER TABLE deploys ADD COLUMN version_id INTEGER",
+    "ALTER TABLE users ADD COLUMN blocked_at INTEGER",
+]
 
 
 def conn() -> sqlite3.Connection:
@@ -33,6 +60,12 @@ def conn() -> sqlite3.Connection:
         _conn = sqlite3.connect(Path(config.DATA_DIR) / "builder-hub.db", check_same_thread=False)
         _conn.row_factory = sqlite3.Row
         _conn.executescript(SCHEMA)
+        for m in MIGRATIONS:
+            try:
+                _conn.execute(m)
+            except sqlite3.OperationalError:
+                pass        # ya estaba
+        _conn.commit()
     return _conn
 
 
@@ -81,17 +114,23 @@ def set_lang(uid: int, lang: str) -> None:
 
 
 def set_blocked(uid: int, blocked: bool) -> None:
-    run("INSERT INTO users(id,blocked,created) VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET blocked=excluded.blocked",
-        (uid, int(blocked), int(time.time())))
+    now = int(time.time())
+    run("""INSERT INTO users(id,blocked,created,blocked_at) VALUES(?,?,?,?)
+           ON CONFLICT(id) DO UPDATE SET blocked=excluded.blocked, blocked_at=excluded.blocked_at""",
+        (uid, int(blocked), now, now if blocked else None))
 
 
 def blocked_list():
-    return q("SELECT id, name, username FROM users WHERE blocked=1 ORDER BY id")
+    return q("SELECT id, name, username FROM users WHERE blocked=1 ORDER BY blocked_at DESC, id LIMIT 100")
 
 
 # ── despliegues (sin tokens)
-def deploy_start(uid: int, app: str) -> int:
-    return run("INSERT INTO deploys(user_id,app,status,created) VALUES(?,?,?,?)", (uid, app, "started", int(time.time())))
+def deploy_start(uid: int, app: str, kind: str = "publish") -> int:
+    return run("INSERT INTO deploys(user_id,app,status,created,kind) VALUES(?,?,?,?,?)", (uid, app, "started", int(time.time()), kind))
+
+
+def deploy_version(did: int, vid: int) -> None:
+    run("UPDATE deploys SET version_id=? WHERE id=?", (vid, did))
 
 
 def deploy_finish(did: int, status: str, summary: dict | None = None, error: str = "") -> None:
@@ -119,3 +158,60 @@ def stats() -> dict:
         "failed7": one("SELECT count(*) n FROM deploys WHERE status IN ('failed','invalid') AND created>=?", (week,)),
         "apps": one("SELECT count(DISTINCT app) n FROM deploys WHERE status='published'"),
     }
+
+
+# ── proyectos y versiones (sin tokens: solo el ID público de la app)
+def project_get(pid: int):
+    return q("SELECT * FROM projects WHERE id=?", (pid,), one=True)
+
+
+def project_by_app(uid: int, app: str):
+    return q("SELECT * FROM projects WHERE user_id=? AND app=?", (uid, app), one=True)
+
+
+def project_upsert(uid: int, app: str, name: str) -> dict:
+    now = int(time.time())
+    run("""INSERT INTO projects(user_id,app,name,created,updated) VALUES(?,?,?,?,?)
+           ON CONFLICT(user_id,app) DO UPDATE SET updated=excluded.updated,
+           name=CASE WHEN excluded.name<>'' THEN excluded.name ELSE projects.name END""", (uid, app, name or "", now, now))
+    return project_by_app(uid, app)
+
+
+def project_set_current(pid: int, vid: int) -> None:
+    run("UPDATE projects SET current_vid=?, updated=? WHERE id=?", (vid, int(time.time()), pid))
+
+
+def projects_of(uid: int):
+    return q("""SELECT p.*, v.label cur_label, (SELECT count(*) FROM versions x WHERE x.project_id=p.id) n
+                FROM projects p LEFT JOIN versions v ON v.id=p.current_vid
+                WHERE p.user_id=? ORDER BY p.updated DESC LIMIT 30""", (uid,))
+
+
+def versions_of(pid: int):
+    return q("SELECT * FROM versions WHERE project_id=? ORDER BY seq", (pid,))
+
+
+def version_get(vid: int):
+    return q("SELECT * FROM versions WHERE id=?", (vid,), one=True)
+
+
+def version_by_sha(pid: int, sha: str):
+    return q("SELECT * FROM versions WHERE project_id=? AND sha256=? ORDER BY seq DESC LIMIT 1", (pid, sha), one=True)
+
+
+def version_add(pid: int, **v) -> int:
+    seq = (q("SELECT max(seq) m FROM versions WHERE project_id=?", (pid,), one=True)["m"] or 0) + 1
+    now = int(time.time())
+    return run("""INSERT INTO versions(project_id,seq,label,sha256,size,filename,file_id,store,store_chat,store_msg,
+                  changelog,no_rollback_before,destructive,created,published) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+               (pid, seq, v.get("label") or f"#{seq}", v["sha256"], v.get("size", 0), v.get("filename", ""), v["file_id"],
+                v.get("store", "chat"), v.get("store_chat"), v.get("store_msg"), v.get("changelog", ""),
+                v.get("no_rollback_before", ""), int(bool(v.get("destructive"))), now, now))
+
+
+def version_touch(vid: int, destructive: bool = False) -> None:
+    run("UPDATE versions SET published=?, destructive=MAX(destructive,?) WHERE id=?", (int(time.time()), int(destructive), vid))
+
+
+def version_store(vid: int, store: str, file_id: str, chat: int | None, msg: int | None) -> None:
+    run("UPDATE versions SET store=?, file_id=?, store_chat=?, store_msg=? WHERE id=?", (store, file_id, chat, msg, vid))

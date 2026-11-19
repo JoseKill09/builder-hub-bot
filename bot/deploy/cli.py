@@ -79,6 +79,10 @@ class Cli:
     async def webhook(self, cwd, token):
         return await self.run(["webhook"], cwd, token)
 
+    async def run_endpoint(self, cwd, token, name: str, payload: str = "{}"):
+        """Ejecuta en los servidores de Telegram (no aquí) un endpoint local, sin subirlo."""
+        return await self.run(["run", f"endpoints/{name}", payload], cwd, token, timeout=60)
+
 
 # ───────────── lectura de la salida ─────────────
 @dataclass

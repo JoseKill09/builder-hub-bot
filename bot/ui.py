@@ -32,6 +32,8 @@ class Screen:
     def quote(self, text): self.blocks.append(("q", text)); return self
     def pre(self, text): self.blocks.append(("pre", text)); return self
     def foot(self, text): self.blocks.append(("f", text)); return self
+    def details(self, summary, lines, open_=False):
+        lines and self.blocks.append(("d", summary, list(lines), open_)); return self
 
     def row(self, *btns):
         r = [b for b in btns if b]
@@ -57,6 +59,9 @@ class Screen:
                 out.append(f"<pre>{esc(b[1])}</pre>")
             elif k == "f":
                 out.append(f"<footer>{b[1]}</footer>")
+            elif k == "d":
+                body = "".join(f"<p>{x}</p>" for x in b[2] if str(x).strip())
+                out.append(f"<details{' open' if b[3] else ''}><summary>{b[1]}</summary>{body}</details>")
         if embed:
             for r in self.rows:
                 out.append("<tg-button-row>" + "".join(_rich_btn(x) for x in r) + "</tg-button-row>")
@@ -80,8 +85,24 @@ class Screen:
                 out.append(f"<pre>{esc(b[1])}</pre>")
             elif k == "f":
                 out.append(f"<i>{b[1]}</i>")
+            elif k == "d":
+                out.append(f"<b>{b[1]}</b>\n<blockquote expandable>" + "\n".join(str(x) for x in b[2]) + "</blockquote>")
         text = "\n\n".join(out)
-        return text if len(text) < 4000 else text[:3990] + "…"
+        if len(text) < 4000:
+            return text
+        # Demasiado largo para un mensaje clásico: se corta por bloques enteros (nunca a mitad de una etiqueta).
+        keep, n = [], 0
+        for part in out:
+            if n + len(part) + 2 > 3900:
+                if part.startswith("<pre>") or part.startswith("<b>") and "<blockquote" in part:
+                    room = 3900 - n - 40
+                    if room > 200:
+                        inner = html.unescape(re.sub(r"<[^>]+>", "", part))[:room]
+                        keep.append(f"<pre>{esc(inner)}…</pre>")
+                break
+            keep.append(part)
+            n += len(part) + 2
+        return "\n\n".join(keep) + "\n\n…"
 
     def markup(self):
         if not self.rows:
@@ -141,9 +162,9 @@ async def send(bot, chat_id: int, s: Screen) -> int | None:
     return None
 
 
-async def edit(bot, chat_id: int, msg_id: int | None, s: Screen) -> int | None:
+async def edit(bot, chat_id: int, msg_id: int | None, s: Screen, fallback_send: bool = True) -> int | None:
     if not msg_id:
-        return await send(bot, chat_id, s)
+        return await send(bot, chat_id, s) if fallback_send else None
     first = _start()
     for lv in range(first, 3):
         try:
@@ -165,4 +186,4 @@ async def edit(bot, chat_id: int, msg_id: int | None, s: Screen) -> int | None:
             if _fatal(e):
                 raise
             log.info("edición nivel %s falló: %s", lv, e)
-    return await send(bot, chat_id, s)
+    return await send(bot, chat_id, s) if fallback_send else None

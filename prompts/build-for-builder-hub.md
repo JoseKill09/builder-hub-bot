@@ -52,6 +52,12 @@ Read https://raw.githubusercontent.com/JoseKill09/builder-hub-bot/main/docs/RICH
 - Buttons can live inside the text: `<tg-button-row><tg-button type="callback_data" data="x" style="primary">Label</tg-button></tg-button-row>`.
 - **Escape every dynamic value** and always implement the three-level fallback (rich with embedded buttons → rich + `reply_markup` → classic `sendMessage` with `parse_mode: "HTML"`). The guide has ready-to-copy code.
 
+## 3c. Versions and Mini App menu
+
+- Add a `CHANGELOG.md` at the root with `## 1.0 — <date>` and a short list of what the bot does. **Every time you give me a new ZIP, raise the version** (`1.1`, `1.2`… or `2.0` for big changes) and add a new block at the top, keeping the old ones. Builder Hub shows me those blocks before I update.
+- Add `builderhub.json` with `{ "name": "<bot name>", "version": "<same as CHANGELOG>" }`. If a new version changes stored data so that older versions can no longer read it, also add `"no_rollback_before": "<that version>"` (anti-rollback) and tell me.
+- Mini App menu button: Builder Hub turns it on automatically after publishing, so I don't have to touch @BotFather. If you want the code to set it too (recommended), ask me for my **app ID** only — the `app123…` part before the colon of my access token, never the secret — and call once, e.g. when the admin sends `/start`: `api.setChatMenuButton({ menu_button: { type: 'web_app', text: 'Open', web_app: { url: 'https://app<id>.tgcloud.ai/' } } })`.
+
 ## 4. Deliver
 
 1. Show me the **file tree** and a short explanation of what each part does.
@@ -59,7 +65,7 @@ Read https://raw.githubusercontent.com/JoseKill09/builder-hub-bot/main/docs/RICH
 3. Tell me the next steps:
    - open @BuilderHubBot → 🚀 Publish → send the **Serverless access token** (@BotFather → my bot → Serverless → CLI Access) → send the ZIP → review → Publish;
    - then regenerate the access token in @BotFather;
-   - if there is a Mini App: set its URL in @BotFather (Builder Hub shows it after publishing) or add a menu button from the code with `setChatMenuButton`.
+   - if there is a Mini App: Builder Hub turns the menu button on by itself after publishing (nothing to do in @BotFather).
 
 ## 5. Check your work before delivering
 
@@ -69,6 +75,7 @@ Read https://raw.githubusercontent.com/JoseKill09/builder-hub-bot/main/docs/RICH
 - [ ] Every handler and endpoint has `export default`.
 - [ ] Every database call is awaited; no foreign keys.
 - [ ] The code is syntactically valid JavaScript (re-read it).
+- [ ] `CHANGELOG.md` has a new top block with a higher version; `builderhub.json` matches it.
 - [ ] If rich messages: every dynamic value is escaped and the fallback exists.
 - [ ] If there is a Mini App: `tgcloud.jsonc` exists and `webapp/index.html` loads `telegram-web-app.js`.
 

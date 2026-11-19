@@ -25,6 +25,17 @@ class DeployError(Exception):
         self.detail = detail
 
 
+MENU_TEXT = {"es": "Abrir", "en": "Open"}
+MENU_JS = """import { api } from 'sdk';
+export default async function (input) {
+  const cur = await api.getChatMenuButton({});
+  if (cur && cur.type === 'web_app') return 'kept';
+  await api.setChatMenuButton({ menu_button: { type: 'web_app', text: String(input.text || 'Open').slice(0, 16), web_app: { url: String(input.url) } } });
+  return 'set';
+}
+"""
+
+
 @dataclass
 class Plan:
     report: Report
@@ -47,6 +58,7 @@ class Outcome:
     migrated: str = ""            # '', 'safe', 'all'
     migrate_out: str = ""
     webhook: dict = field(default_factory=dict)
+    menu: str = ""                # '', 'set' (activado ahora), 'kept' (el bot ya tenía uno), 'failed'
     error: str = ""
 
 
@@ -61,6 +73,7 @@ class Job:
         self.project = self.dir / "p"
         self.created = time.time()
         self.handlers = list(DEFAULT_HANDLERS)
+        self.lang = "en"
         self.revision: int | None = None
         self.deployed_modules = 0
         self.plan: Plan | None = None
@@ -125,7 +138,9 @@ class Job:
             code = "conflict" if "revision" in r.out.lower() or "pull" in r.out.lower() else "push_failed"
             return Outcome(False, error=code + ": " + r.out[-800:])
         info = C.parse_push(r.out)
-        out = Outcome(True, static_url=info["static_url"])
+        # Si la Mini App no cambió, `push` no imprime su URL; es siempre https://<app>.tgcloud.ai/
+        url = info["static_url"] or (f"https://{self.app}.tgcloud.ai/" if self.plan.report.static_dir else None)
+        out = Outcome(True, static_url=url)
         sp = self.plan.schema
         if info["schema_pending"] or sp.safe or sp.destructive:
             mode_all = allow_destructive and bool(sp.destructive)
@@ -137,8 +152,30 @@ class Job:
                 out.error = "migrate_failed: " + m.out[-800:]
         w = await self.cli.webhook(str(self.project), self._token)
         out.webhook = C.parse_webhook(w.out) if w.ok else {}
+        if out.ok and out.static_url and (self.plan.report.static_dir or self.plan.status.static_lines):
+            out.menu = await self._activate_menu(out.static_url)
         self.state = "done" if out.ok else "planned"
         return out
+
+    async def _activate_menu(self, url: str) -> str:
+        """Deja el botón de menú del bot apuntando a su Mini App (si el bot no tiene ya uno propio).
+
+        El fragmento corre en los servidores de Telegram con `tgcloud run`; se escribe, se ejecuta y se borra:
+        no forma parte del proyecto subido ni corre en el NAS.
+        """
+        ep = self.project / "tgcloud" / "endpoints"
+        f = ep / "bhmenu.js"
+        try:
+            ep.mkdir(parents=True, exist_ok=True)
+            f.write_text(MENU_JS, encoding="utf-8")
+            r = await self.cli.run_endpoint(str(self.project), self._token, "bhmenu", json.dumps({"url": url, "text": MENU_TEXT.get(self.lang, "Open")}))
+        except Exception:  # noqa: BLE001
+            return "failed"
+        finally:
+            f.unlink(missing_ok=True)
+        if not r.ok:
+            return "failed"
+        return "kept" if "kept" in r.out else "set" if "set" in r.out else "failed"
 
     # ── 4) limpiar: se borra todo y se olvida el token
     def cleanup(self) -> None:

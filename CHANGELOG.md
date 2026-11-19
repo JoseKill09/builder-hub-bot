@@ -1,5 +1,18 @@
 # Cambios
 
+## 2.0 — 2026-11-19
+- **Actualizar con novedades:** manda el ZIP nuevo cuando quieras (sin pulsar nada): el bot enseña las novedades de su `CHANGELOG.md` desde la versión publicada (`v1.2 → v1.3`), pide el token y muestra la revisión con ✅ Actualizar / ✖️ Cancelar.
+- **🗂 Mis proyectos:** historial de versiones de cada bot con fecha, novedades y SHA-256; ⬅️ volver a la anterior, ➡️ ir a la siguiente, restaurar cualquiera y 📥 descargar su ZIP.
+- **Restaurar de forma segura:** solo se descarga esa versión (a memoria), se comprueba su SHA-256, se valida otra vez y se enseña el plan antes de tocar nada; al terminar se borra.
+- **Anti-rollback:** `no_rollback_before` en `builderhub.json` impide volver más atrás y el bot dice hasta qué versión se puede; también bloquea si hiciera falta un cambio manual en la base de datos y avisa si alguna versión borró datos. Subir un ZIP más antiguo cuenta como volver atrás.
+- **Si una actualización falla:** botón para volver a la versión que había, con el mismo token.
+- **Copias en Telegram:** canal privado configurable desde el panel (💾); sin canal, la copia es el propio ZIP del usuario. Los ZIP del chat no se borran nunca.
+- **Botón de menú de la Mini App activado solo** al publicar (sin pasar por @BotFather).
+- **Cola con posición** cuando hay más publicaciones que huecos; huecos a la vez configurables en el panel (1–4).
+- **Contacto con el propietario:** tipos, hilo, bandeja con filtros, respuestas rápidas, notas, destacados, resolver y avisar, retirar la última respuesta (48 h) y bloquear.
+- Formato: `CHANGELOG.md` y `builderhub.json` documentados en `docs/FORMAT.md` y en los prompts; ejemplo actualizado.
+- Corregido: la URL de la Mini App no salía si sus archivos no cambiaban.
+
 ## 1.1 — 17-11-2026
 - Botón «Copiar prompt para la IA» en 📦 Formato: envía un prompt corto en un solo mensaje (es/en según el usuario) que manda a la IA a leer el completo en GitHub.
 - Módulo de mensajes enriquecidos en los prompts (pregunta al usuario) y guía `docs/RICH-MESSAGES.md` con todas las etiquetas, límites, botones, errores típicos y patrón con respaldo.

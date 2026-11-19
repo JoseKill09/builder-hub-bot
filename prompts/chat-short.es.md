@@ -13,6 +13,7 @@ Resumen de las reglas obligatorias:
 - Handlers y endpoints: `export default async function (payload, ctx)`. Toda llamada a la base de datos con `await`; sin foreign keys.
 - No hay cron ni procesos en segundo plano. Las claves de terceros se guardan en la base de datos, que las pone el admin desde el bot.
 - Mensajes enriquecidos (solo si dije que sí): lee primero https://raw.githubusercontent.com/JoseKill09/builder-hub-bot/main/docs/RICH-MESSAGES.md. Se envían con `api.sendRichMessage({ chat_id, rich_message: { html } })`, NO son HTML clásico, hay que escapar todo valor dinámico y tener un respaldo con mensajes clásicos.
-- Mini App (opcional): HTML/JS simple en `webapp/` + `tgcloud.jsonc` con `{ "static": { "source": "webapp" } }`.
+- Versiones: añade `CHANGELOG.md` (`## 1.0 — fecha` + lista) y `builderhub.json` (`{"name":…,"version":…}`). En cada ZIP nuevo sube la versión y añade un bloque arriba; si las versiones antiguas ya no pueden leer los datos guardados, añade `"no_rollback_before": "<versión>"`.
+- Mini App (opcional): HTML/JS simple en `webapp/` + `tgcloud.jsonc` con `{ "static": { "source": "webapp" } }`. Builder Hub activa solo su botón de menú.
 
 Entrégame un ZIP descargable con UNA sola carpeta raíz (sin node_modules ni .env), el árbol de archivos y una explicación breve. Si no puedes crear archivos, dame cada archivo en su bloque de código con la ruta completa. Relee tu código antes de entregarlo. Si te pego un informe de error de Builder Hub, corrige exactamente eso y dame el ZIP completo de nuevo.

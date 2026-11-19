@@ -18,6 +18,21 @@ It exists for people who don't have a computer, a terminal or an AI agent that c
 5. You review the plan (new / changed / **deleted** modules, database changes) and tap **✅ Publish**.
 6. **Regenerate your access token** in BotFather afterwards, so the one you shared stops working.
 
+To **update** a bot later, just send its new ZIP to Builder Hub at any time: it shows you what's new (from the ZIP's `CHANGELOG.md`, every version newer than the one your bot has), then asks for the token and the confirmation.
+
+## Features
+
+- **Updates with "what's new".** Send a ZIP whenever you want; Builder Hub compares it with the published version (`v1.2 → v1.3`), shows the new changelog entries and the plan, and you confirm or cancel.
+- **Version history per bot** (🗂 My projects): every published version with its date, changelog and SHA-256. Go **⬅️ back** to the previous one, **➡️ forward** again, restore any version, or **📥 download** its ZIP.
+- **Safe restores.** Only the chosen version is downloaded (to RAM), its SHA-256 must match, it is validated again and you see the plan before anything changes.
+- **Anti-rollback.** A version can declare `no_rollback_before` in `builderhub.json`; Builder Hub then refuses to go back further and says so. It also blocks a rollback that would need a manual database change, and warns when a version in between deleted data. Uploading an older ZIP counts as a rollback too.
+- **Recovery after a failed update:** if publishing fails, one tap goes back to the version you had, with the same token (no need to send it again).
+- **Copies in Telegram, not on the server.** With a private channel set in the panel, every published ZIP is stored there (by `file_id`, no re-upload). Without it, the version points to the user's own ZIP in the chat. **Builder Hub never deletes ZIP messages** — only the message that carries a token.
+- **Mini App menu button turned on automatically** after publishing (no BotFather step), unless the bot already has one.
+- **Queue:** a few publications run at the same time (panel setting, 1–4); everyone else waits in order and sees their position.
+- **Contact:** users write to the owner (idea, bug, question…) and get the answer in the chat. The owner has an inbox with filters, quick replies, notes, stars, "solve and notify", retracting the last reply (48 h) and blocking.
+- **Copyable AI prompt** in one message, in the user's language (📦 Format → 📋).
+
 ## Security model
 
 - **Your code never runs on the Builder Hub server.** It is only validated and uploaded; it runs on Telegram's infrastructure, inside your bot.
@@ -44,7 +59,7 @@ It exists for people who don't have a computer, a terminal or an AI agent that c
 ## Run your own instance
 
 ```bash
-git clone https://github.com/JoseKill09/builder-hub-bot && cd builder-hub
+git clone https://github.com/JoseKill09/builder-hub-bot && cd builder-hub-bot
 cp .env.example .env           # then fill BOT_TOKEN and ADMIN_IDS
 docker compose up -d --build
 ```
@@ -55,10 +70,10 @@ docker compose up -d --build
 | `ADMIN_IDS` | Telegram user IDs allowed to open the admin panel (comma-separated) |
 | `PUID` / `PGID` | Owner of `./data` on the host (default `1000:10`) |
 | `RICH_MESSAGES` | `0` to force classic HTML messages |
-| `MAX_PARALLEL` | Publications at the same time (default 2) |
+| `MAX_PARALLEL` | Default for "publications at once" (the panel setting wins; default 2) |
 | `JOB_TTL` | Seconds before an unfinished publication is cancelled and forgotten (default 900) |
 
-Runtime settings (sign-ups open/closed, max ZIP size, daily limit per user, blocked users) are changed from the **🛡 Panel** inside the bot.
+Runtime settings (sign-ups and contact open/closed, max ZIP size, daily limit per user, publications at once, copies channel, blocked users, support inbox) are changed from the **🛡 Panel** inside the bot.
 
 ## Development
 
@@ -88,3 +103,5 @@ Builder Hub pins `@tgcloud/cli@0.2.0`. New CLI versions are tested before the pi
 ### Español
 
 Builder Hub publica en tu bot de Telegram Serverless el proyecto que te prepare cualquier IA de chat. Mandas el token de acceso de Serverless y el ZIP; el bot lo revisa, te enseña qué cambia (y qué se borraría) y lo sube con el CLI oficial. Tu código no se ejecuta en el servidor de Builder Hub y el token no se guarda. Al terminar, **regenera el token** en @BotFather.
+
+Para **actualizar**, basta con mandarle el ZIP nuevo: enseña las novedades del `CHANGELOG.md` desde la versión publicada y pide confirmación. Guarda todas las versiones (en un canal privado de Telegram si lo configuras en el panel), permite volver a la anterior o a cualquiera con comprobación SHA-256 y **anti-rollback** (`no_rollback_before` en `builderhub.json`), activa solo el botón de menú de la Mini App, pone en cola las publicaciones cuando hay muchas y tiene un módulo de contacto con el propietario. Nunca borra los ZIP del chat.

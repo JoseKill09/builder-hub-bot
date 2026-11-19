@@ -23,4 +23,7 @@ DEFAULTS = {
     "open": True,          # cualquiera puede usar el bot
     "max_zip_mb": 20,      # Telegram deja a los bots descargar hasta 20 MB
     "daily_limit": 20,     # despliegues por usuario y día
+    "parallel": MAX_PARALLEL,   # publicaciones a la vez; el resto, en cola
+    "backup_chat": None,   # canal privado donde se guardan las versiones (Panel → 💾)
+    "contact_open": True,  # los usuarios pueden escribir al propietario
 }

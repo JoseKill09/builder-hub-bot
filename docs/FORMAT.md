@@ -17,6 +17,8 @@ my-bot.zip
     ├── tgcloud.jsonc            ← only if there is a Mini App
     ├── webapp/                  ← the Mini App, ALREADY BUILT (any folder name)
     │   └── index.html
+    ├── CHANGELOG.md             ← recommended: version history ("what's new")
+    ├── builderhub.json          ← optional: name, version, anti-rollback
     └── README.md                ← optional, ignored
 ```
 
@@ -58,6 +60,52 @@ Limits: ZIP up to **20 MB** (Telegram's download limit for bots), **50 MB** unpa
 - Include `<script src="https://telegram.org/js/telegram-web-app.js"></script>` and call endpoints with `Telegram.WebApp.Serverless.call('name', input, (err, result) => …)`.
 - The site is served at `https://app<id>.tgcloud.ai/`. If the project has **no** `"static"` key, an already published Mini App is left as it is.
 
+## Versions, "what's new" and going back
+
+Builder Hub keeps every published version of each bot, shows the user what changed before updating, and can go back to an older version. It needs two small files at the root:
+
+**`CHANGELOG.md`** — newest version first, one `## X.Y — date` heading per version:
+
+```markdown
+# Changelog
+
+## 1.3 — 2026-11-19
+- New: /stats command.
+- Fixed: the welcome message was sent twice.
+
+## 1.2 — 2026-11-10
+- Faster replies.
+```
+
+- **Every new ZIP must raise the version** (`1.2` → `1.3` for small changes, `2.0` for big ones) and add its block at the top. Keep the old blocks: Builder Hub shows the user every block newer than the version their bot has.
+- Write the entries for the bot's users, in plain words.
+
+**`builderhub.json`** (optional):
+
+```json
+{ "name": "Linux ISO Notifier", "version": "1.3", "no_rollback_before": "1.0" }
+```
+
+| Key | Meaning |
+|---|---|
+| `name` | Name shown in the user's project list (default: the ZIP's folder or file name). |
+| `version` | Version of this ZIP (default: the first `## X.Y` of `CHANGELOG.md`). |
+| `no_rollback_before` | **Anti-rollback.** The oldest version this one can safely go back to. Set it when this version changes stored data in a way older code can't read (renamed fields, a new JSON format inside a column, moved data between tables…). Builder Hub then refuses to restore anything older and tells the user why. Leave it out when older versions still work with the data. |
+
+Builder Hub also blocks going back when the older schema would need a manual database change, and warns when a version in between deleted data.
+
+## Mini App menu button
+
+If the project has a Mini App, Builder Hub turns on the bot's **menu button** right after publishing (it points to `https://app<id>.tgcloud.ai/`), unless the bot already has a Mini App menu button. The user doesn't need to touch @BotFather for that.
+
+It is still good practice to set it from the bot's own code, so it stays right if the bot is published some other way. Do it once, for example when the owner sends `/start`:
+
+```js
+await api.setChatMenuButton({ menu_button: { type: 'web_app', text: 'Open', web_app: { url: 'https://app<id>.tgcloud.ai/' } } });
+```
+
+Without `chat_id` it is the default for every user. (Only the *Main Mini App* / direct link `t.me/<bot>/<app>` must be configured in @BotFather; there is no Bot API method for it.)
+
 ## What happens on publish
 
 - The cloud ends up **exactly** like the ZIP: modules that exist in the bot but not in the ZIP are **deleted** (Builder Hub lists them before publishing).
@@ -73,5 +121,7 @@ Limits: ZIP up to **20 MB** (Telegram's download limit for bots), **50 MB** unpa
 - [ ] `schema.js` has no `.references()`.
 - [ ] If there is a Mini App: `tgcloud.jsonc` with `static.source`, and that folder has a built `index.html`.
 - [ ] No `node_modules/`, `.tgcloud/`, `.env` (they are ignored anyway).
+- [ ] `CHANGELOG.md` has a new `## X.Y — date` block at the top (higher than the previous ZIP).
+- [ ] If this version changes stored data so that older versions can't use it: `builderhub.json` with `no_rollback_before`.
 
 A complete valid example: [`examples/hello-bot`](../examples/hello-bot).
